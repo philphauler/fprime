@@ -104,6 +104,11 @@ void FpySequencer::Svc_FpySequencer_SequencerStateMachine_action_report_seqCance
     Svc_FpySequencer_SequencerStateMachine::Signal signal  //!< The signal
 ) {
     this->m_tlm.sequencesCancelled++;
+    // Clear breakpoint state so it does not leak into the next sequence (#5638)
+    this->m_breakpoint.breakpointInUse = false;
+    this->m_breakpoint.breakpointIndex = 0;
+    this->m_breakpoint.breakOnlyOnceOnBreakpoint = false;
+    this->m_breakpoint.breakBeforeNextLine = false;
     this->log_ACTIVITY_HI_SequenceCancelled(this->m_sequenceFilePath);
     if (this->isConnected_seqDoneOut_OutputPort(0)) {
         // report that the sequence failed to internal callers
