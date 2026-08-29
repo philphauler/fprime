@@ -22,6 +22,11 @@ struct ToeChannel {
     bool baseline_set = false;
     ToeState state = ToeState::UNINIT;
     U32 baseline_samples = 0;
+    // adaptive: EWMA of alpha and variance for per-channel auto delta
+    F64 ewma_alpha = 0.5;
+    F64 ewma_var = 0.0;
+    U32 ewma_count = 0;
+    bool adaptive = true;
 };
 
 struct ToeResult {
