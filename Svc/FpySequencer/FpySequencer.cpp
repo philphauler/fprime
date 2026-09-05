@@ -453,7 +453,7 @@ void FpySequencer::updateDebugTelemetryStruct() {
         FW_ASSERT(this->m_runtime.nextStatementIndex < Fpy::MAX_SEQUENCE_STATEMENT_COUNT,
                   static_cast<FwAssertArgType>(this->m_runtime.nextStatementIndex));
         const Fpy::Statement& nextStmt = this->m_sequenceObj.get_statements()[this->m_runtime.nextStatementIndex];
-        
+
         // If we already tried this statement and it failed, skip deserializeDirective
         // which emits WARNING_HI on every call (#5661)
         if (this->m_debug.cachedStmtIndex == this->m_runtime.nextStatementIndex &&
