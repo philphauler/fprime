@@ -60,6 +60,12 @@ class GenericHubTester : public GenericHubGTestBase {
     //!
     void test_events();
 
+    //! Forward an event whose argument buffer is completely full
+    void test_events_full();
+
+    //! Forward a telemetry value whose buffer is completely full
+    void test_telemetry_full();
+
     //! Test of commands in-out
     //!
     void test_commands();

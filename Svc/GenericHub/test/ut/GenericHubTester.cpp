@@ -106,6 +106,41 @@ void GenericHubTester ::test_telemetry() {
     clearFromPortHistory();
 }
 
+void GenericHubTester ::test_events_full() {
+    Fw::LogSeverity severity = Fw::LogSeverity::WARNING_HI;
+    Fw::LogBuffer buffer;
+    buffer.resetSer();
+    for (FwSizeType i = 0; i < FW_LOG_BUFFER_MAX_SIZE; i++) {
+        ASSERT_EQ(buffer.serializeFrom(static_cast<U8>(i)), Fw::FW_SERIALIZE_OK);
+    }
+    ASSERT_EQ(buffer.getSize(), static_cast<FwSizeType>(FW_LOG_BUFFER_MAX_SIZE));
+
+    Fw::Time time(100, 200);
+    invoke_to_eventIn(0, 123, time, severity, buffer);
+
+    ASSERT_from_fromBufferDriverReturn_SIZE(1);
+    ASSERT_from_eventOut_SIZE(1);
+    ASSERT_from_eventOut(0, 123, time, severity, buffer);
+    clearFromPortHistory();
+}
+
+void GenericHubTester ::test_telemetry_full() {
+    Fw::TlmBuffer buffer;
+    buffer.resetSer();
+    for (FwSizeType i = 0; i < FW_TLM_BUFFER_MAX_SIZE; i++) {
+        ASSERT_EQ(buffer.serializeFrom(static_cast<U8>(i)), Fw::FW_SERIALIZE_OK);
+    }
+    ASSERT_EQ(buffer.getSize(), static_cast<FwSizeType>(FW_TLM_BUFFER_MAX_SIZE));
+
+    Fw::Time time(100, 200);
+    invoke_to_tlmIn(0, 123, time, buffer);
+
+    ASSERT_from_fromBufferDriverReturn_SIZE(1);
+    ASSERT_from_tlmOut_SIZE(1);
+    ASSERT_from_tlmOut(0, 123, time, buffer);
+    clearFromPortHistory();
+}
+
 void GenericHubTester ::test_events() {
     Fw::LogSeverity severity = Fw::LogSeverity::WARNING_HI;
     Fw::LogBuffer buffer;

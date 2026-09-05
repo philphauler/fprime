@@ -24,6 +24,16 @@ TEST(Nominal, TestEvents) {
     tester.test_events();
 }
 
+TEST(Nominal, TestEventsFull) {
+    Svc::GenericHubTester tester;
+    tester.test_events_full();
+}
+
+TEST(Nominal, TestTelemetryFull) {
+    Svc::GenericHubTester tester;
+    tester.test_telemetry_full();
+}
+
 TEST(Nominal, TestTelemetry) {
     Svc::GenericHubTester tester;
     tester.test_telemetry();
