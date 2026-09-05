@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <Fw/FPrimeBasicTypes.hpp>
+#include <limits>
 
 #include "Fw/Types/Serializable.hpp"
 
@@ -57,6 +58,51 @@ TEST(ExternalSerializeBuffer, Basic) {
     deserializeOK(esb);
     // Deserialization should fail
     deserializeFail(esb);
+}
+
+// #5816: the byte-array overload checked m_serLoc + length > m_capacity. With one byte already
+// serialized and length at the type maximum the sum wraps to 0, the check passes and a copy of
+// length bytes runs past the buffer. The remaining-capacity form cannot wrap.
+TEST(ExternalSerializeBuffer, SerializeBytesLengthNearMax) {
+    Fw::ExternalSerializeBuffer esb(buffer, BUFFER_SIZE);
+    const U8 byte = 0x5A;
+    ASSERT_EQ(esb.serializeFrom(&byte, 1, Fw::Serialization::OMIT_LENGTH), Fw::FW_SERIALIZE_OK);
+    ASSERT_EQ(esb.serializeFrom(&byte, std::numeric_limits<SizeType>::max(), Fw::Serialization::OMIT_LENGTH),
+              Fw::FW_SERIALIZE_NO_ROOM_LEFT);
+    ASSERT_EQ(esb.getSize(), 1);
+    // exact fit and one byte over at the boundary
+    const U8 fill[BUFFER_SIZE] = {};
+    ASSERT_EQ(esb.serializeFrom(fill, BUFFER_SIZE - 1, Fw::Serialization::OMIT_LENGTH), Fw::FW_SERIALIZE_OK);
+    ASSERT_EQ(esb.getSize(), BUFFER_SIZE);
+    ASSERT_EQ(esb.serializeFrom(&byte, 1, Fw::Serialization::OMIT_LENGTH), Fw::FW_SERIALIZE_NO_ROOM_LEFT);
+    ASSERT_EQ(esb.getSize(), BUFFER_SIZE);
+}
+
+// #5816: the buffer overload checked m_serLoc + size + sizeof(FwSizeStoreType) > m_capacity,
+// which wraps the same way when the source buffer reports a size near the type maximum
+TEST(ExternalSerializeBuffer, SerializeBufferSizeNearMax) {
+    Fw::ExternalSerializeBuffer esb(buffer, BUFFER_SIZE);
+    U8 backing[BUFFER_SIZE] = {};
+    // capacity and length are only bookkeeping here; the fix must reject before any copy
+    Fw::ExternalSerializeBuffer big(backing, std::numeric_limits<SizeType>::max());
+    ASSERT_EQ(big.setBuffLen(std::numeric_limits<SizeType>::max() - 1), Fw::FW_SERIALIZE_OK);
+    ASSERT_EQ(esb.serializeFrom(big), Fw::FW_SERIALIZE_NO_ROOM_LEFT);
+    ASSERT_EQ(esb.getSize(), 0);
+}
+
+TEST(ExternalSerializeBuffer, SerializeBufferExactFit) {
+    Fw::ExternalSerializeBuffer esb(buffer, BUFFER_SIZE);
+    U8 backing[BUFFER_SIZE] = {};
+    Fw::ExternalSerializeBuffer val(backing, BUFFER_SIZE);
+    // length prefix plus payload exactly fills the destination
+    ASSERT_EQ(val.setBuffLen(BUFFER_SIZE - sizeof(FwSizeStoreType)), Fw::FW_SERIALIZE_OK);
+    ASSERT_EQ(esb.serializeFrom(val), Fw::FW_SERIALIZE_OK);
+    ASSERT_EQ(esb.getSize(), BUFFER_SIZE);
+    // one payload byte more does not fit, and nothing is written
+    esb.resetSer();
+    ASSERT_EQ(val.setBuffLen(BUFFER_SIZE - sizeof(FwSizeStoreType) + 1), Fw::FW_SERIALIZE_OK);
+    ASSERT_EQ(esb.serializeFrom(val), Fw::FW_SERIALIZE_NO_ROOM_LEFT);
+    ASSERT_EQ(esb.getSize(), 0);
 }
 
 TEST(ExternalSerializeBuffer, Clear) {
