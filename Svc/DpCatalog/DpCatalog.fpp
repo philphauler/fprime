@@ -432,14 +432,14 @@ module Svc {
       format "Failed to format DP file name for {} with status {}" \
       throttle 10
 
-    @ Late fileDone with no current transmit (STOP+BUILD or CLEAR+BUILD race)
+    @ fileDone that does not match the send in flight, or arrives with no send in flight
     event StaleFileDone(
-                            file: string size FileNameStringSize @< The stale file name
+                            context: U32 @< FileDownlink context carried by the fileDone
                             status: Svc.SendFileStatus @< Downlink status
                           ) \
       severity warning high \
       id 50 \
-      format "Stale fileDone for {} status {} - no current transmit" \
+      format "Stale fileDone context {} status {}, no matching transmit in flight" \
       throttle 10
 
 

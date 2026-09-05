@@ -148,7 +148,7 @@ When a data product is downlinked, it is marked in the node as completed, but th
 
 #### 3.7.4 FileDone Handling
 
-`fileDone` is hermetic: late `fileDone` after `STOP_XMIT_CATALOG` + `BUILD_CATALOG` (or `CLEAR_CATALOG` + `BUILD_CATALOG`) is treated as stale — emits `StaleFileDone` `WARNING_HI` `id 50`, clears `m_hasCurrentXmit`/`m_xmitInProgress`/`m_xmitGeneration`, and answers the waited `START_XMIT_CATALOG` with `EXECUTION_ERROR` via `dispatchWaitedResponse`. Retry exhaustion (`SEND_RETRY` limit) is not a wedge — it is treated as success. Generation counter `m_xmitGeneration` / `m_currentXmitGeneration` is bumped on `START_XMIT_CATALOG` and `BUILD_CATALOG` so stale `fileDone` from a prior generation is ignored even if `m_hasCurrentXmit` is already false.
+Every `sendFile` call returns a `SendFileResponse` whose `context` FileDownlink assigns to that send and echoes back in `fileDone`. `DpCatalog` keeps the context of the send in flight and applies a `fileDone` only while a send is in flight and the context matches. Anything else is a late callback from a send abandoned by `STOP_XMIT_CATALOG`, `BUILD_CATALOG` or `CLEAR_CATALOG`: it is reported with `StaleFileDone` (`WARNING_HI`, id 50) and the transmit in flight, if any, is left untouched. When `CLEAR_CATALOG` dropped the send in flight, the stale callback also closes the abandoned session so a waited `START_XMIT_CATALOG` is answered with `EXECUTION_ERROR` and a later `START_XMIT_CATALOG` is not refused as in progress. This replaces the `FW_ASSERT` that made a late `fileDone` FATAL (#5777).
 
 ## 6 Unit Testing
 

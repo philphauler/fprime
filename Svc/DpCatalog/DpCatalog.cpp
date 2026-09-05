@@ -731,7 +731,10 @@ void DpCatalog::sendNextEntry() {
         this->m_hasCurrentXmit = false;
         this->m_xmitInProgress = false;
         this->dispatchWaitedResponse(Fw::CmdResponse::EXECUTION_ERROR);
+        return;
     }
+    // FileDownlink echoes this context in fileDone; it identifies this send (#5777)
+    this->m_currXmitContext = resp.get_context();
 }  // end sendNextEntry()
 
 bool DpCatalog::findNextEntry(DpStateEntry& entry) {
@@ -781,28 +784,24 @@ void DpCatalog::shutdown() {
 // ----------------------------------------------------------------------
 
 void DpCatalog ::fileDone_handler(FwIndexType portNum, const Svc::SendFileResponse& resp) {
+    // A completion is ours only while a send is in flight and it carries the context FileDownlink
+    // handed back for that send. Anything else is a late callback from a send abandoned by
+    // STOP_XMIT_CATALOG, BUILD_CATALOG or CLEAR_CATALOG (#5777): log it and leave the current
+    // transmit alone, since a newer send may already be in flight
+    if (!this->m_hasCurrentXmit || resp.get_context() != this->m_currXmitContext) {
+        this->log_WARNING_HI_StaleFileDone(resp.get_context(), resp.get_status());
+        if (!this->m_hasCurrentXmit && this->m_xmitInProgress) {
+            // CLEAR_CATALOG dropped the send in flight but left the session open: close it so a
+            // waited START_XMIT_CATALOG is answered and the next one is not refused as in progress
+            this->m_xmitInProgress = false;
+            this->dispatchWaitedResponse(Fw::CmdResponse::EXECUTION_ERROR);
+        }
+        return;
+    }
+
     // check file status
     if (resp.get_status() != Svc::SendFileStatus::STATUS_OK) {
         this->log_WARNING_HI_DpFileXmitError(this->m_currXmitFileName, resp.get_status());
-        this->m_hasCurrentXmit = false;
-        this->m_xmitInProgress = false;
-        this->dispatchWaitedResponse(Fw::CmdResponse::EXECUTION_ERROR);
-        return;
-    }
-
-    // Catalog cleared while this file was sent; clear xmit state and answer any waited command
-    if (!this->m_catalogBuilt) {
-        this->log_WARNING_HI_StaleFileDone(this->m_currXmitFileName, resp.get_status());
-        this->m_hasCurrentXmit = false;
-        this->m_xmitInProgress = false;
-        this->dispatchWaitedResponse(Fw::CmdResponse::EXECUTION_ERROR);
-        return;
-    }
-
-    // Late fileDone with no current transmit (STOP+BUILD race, double fileDone, or CLEAR+BUILD per sdd.md:116)
-    // Previously FW_ASSERT(m_hasCurrentXmit) -> FATAL #5777. Handle gracefully like #5624 sendNextEntry wedges.
-    if (!this->m_hasCurrentXmit) {
-        this->log_WARNING_HI_StaleFileDone(this->m_currXmitFileName, resp.get_status());
         this->m_hasCurrentXmit = false;
         this->m_xmitInProgress = false;
         this->dispatchWaitedResponse(Fw::CmdResponse::EXECUTION_ERROR);
