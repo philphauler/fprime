@@ -5625,4 +5625,37 @@ TEST_F(FpySequencerTester, popSerializable_differentPorts) {
     ASSERT_EQ(m_serialOutHistory[0].portNum, 4);
 }
 
+// #5661: while paused on a statement that fails to deserialize, the debug telemetry
+// path reports the failure through Debug_NextStatementReadSuccess and must not emit
+// DirectiveDeserializeError on every tick. Without the fix each tick emits one warning.
+TEST_F(FpySequencerTester, tlmWriteDebugDoesNotEmitDeserializeWarning) {
+    // statement 0: WAIT_REL with junk appended so deserializeDirective fails
+    add_WAIT_REL();
+    seq.get_statements()[0].get_argBuf().serializeFrom(123);
+    tester_get_m_sequenceObj_ptr()->get_header().set_statementCount(1);
+    tester_get_m_sequenceObj_ptr()->get_statements()[0] = seq.get_statements()[0];
+    tester_get_m_runtime_ptr()->nextStatementIndex = 0;
+    tester_get_m_runtime_ptr()->stack.size = 3;
+    this->tester_setState(State::RUNNING_PAUSED);
+
+    invoke_to_tlmWrite(0, 0);
+    this->tester_doDispatch();
+    ASSERT_EVENTS_DirectiveDeserializeError_SIZE(0);
+    ASSERT_TLM_Debug_NextStatementReadSuccess_SIZE(1);
+    ASSERT_TLM_Debug_NextStatementReadSuccess(0, false);
+    ASSERT_TLM_Debug_NextStatementIndex(0, 0u);
+    ASSERT_TLM_Debug_StackSize(0, 3u);
+
+    // second tick on the same statement: still no warning. The read-success channel keeps its
+    // value (false) so, as with every F Prime channel, it is not re-emitted; the stack size changed
+    // and is.
+    tester_get_m_runtime_ptr()->stack.size = 7;
+    invoke_to_tlmWrite(0, 0);
+    this->tester_doDispatch();
+    ASSERT_EVENTS_DirectiveDeserializeError_SIZE(0);
+    ASSERT_TLM_Debug_NextStatementReadSuccess_SIZE(1);
+    ASSERT_TLM_Debug_StackSize_SIZE(2);
+    ASSERT_TLM_Debug_StackSize(1, 7u);
+}
+
 }  // namespace Svc
