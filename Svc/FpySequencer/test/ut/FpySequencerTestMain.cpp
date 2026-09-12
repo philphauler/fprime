@@ -4249,6 +4249,107 @@ TEST_F(FpySequencerTester, tlmWrite) {
     ASSERT_TLM_SIZE(20);
 }
 
+// #5661: while paused on a statement that fails to deserialize, the debug telemetry
+// path must emit DirectiveDeserializeError once for that statement, not on every tick.
+TEST_F(FpySequencerTester, tlmWriteDebugCachesFailedDeserialize) {
+    // statement 0: WAIT_REL with junk appended so deserializeDirective fails
+    add_WAIT_REL();
+    seq.get_statements()[0].get_argBuf().serializeFrom(123);
+    tester_get_m_sequenceObj_ptr()->get_header().set_statementCount(1);
+    tester_get_m_sequenceObj_ptr()->get_statements()[0] = seq.get_statements()[0];
+    tester_get_m_runtime_ptr()->nextStatementIndex = 0;
+    tester_get_m_runtime_ptr()->stack.size = 3;
+    this->tester_setState(State::RUNNING_PAUSED);
+
+    invoke_to_tlmWrite(0, 0);
+    this->tester_doDispatch();
+    ASSERT_EVENTS_DirectiveDeserializeError_SIZE(1);
+    ASSERT_TLM_Debug_NextStatementReadSuccess_SIZE(1);
+    ASSERT_TLM_Debug_NextStatementReadSuccess(0, false);
+    ASSERT_TLM_Debug_NextStatementIndex(0, 0u);
+    ASSERT_TLM_Debug_StackSize(0, 3u);
+
+    // second tick on the same statement: without the fix this is a second WARNING_HI.
+    // the cached path must still refresh the stack size.
+    tester_get_m_runtime_ptr()->stack.size = 7;
+    invoke_to_tlmWrite(0, 0);
+    this->tester_doDispatch();
+    ASSERT_EVENTS_DirectiveDeserializeError_SIZE(1);
+    ASSERT_TLM_Debug_StackSize_SIZE(2);
+    ASSERT_TLM_Debug_StackSize(1, 7u);
+}
+
+// the failed-statement cache is keyed on the statement index: moving to a different
+// statement that also fails must produce a fresh warning for that statement.
+TEST_F(FpySequencerTester, tlmWriteDebugCacheKeyedOnStatementIndex) {
+    add_WAIT_REL();
+    add_WAIT_REL();
+    seq.get_statements()[0].get_argBuf().serializeFrom(123);
+    seq.get_statements()[1].get_argBuf().serializeFrom(123);
+    tester_get_m_sequenceObj_ptr()->get_header().set_statementCount(2);
+    tester_get_m_sequenceObj_ptr()->get_statements()[0] = seq.get_statements()[0];
+    tester_get_m_sequenceObj_ptr()->get_statements()[1] = seq.get_statements()[1];
+    tester_get_m_runtime_ptr()->nextStatementIndex = 0;
+    this->tester_setState(State::RUNNING_PAUSED);
+
+    invoke_to_tlmWrite(0, 0);
+    this->tester_doDispatch();
+    invoke_to_tlmWrite(0, 0);
+    this->tester_doDispatch();
+    ASSERT_EVENTS_DirectiveDeserializeError_SIZE(1);
+
+    tester_get_m_runtime_ptr()->nextStatementIndex = 1;
+    invoke_to_tlmWrite(0, 0);
+    this->tester_doDispatch();
+    ASSERT_EVENTS_DirectiveDeserializeError_SIZE(2);
+    invoke_to_tlmWrite(0, 0);
+    this->tester_doDispatch();
+    ASSERT_EVENTS_DirectiveDeserializeError_SIZE(2);
+}
+
+// the cache must not survive resetRuntime: a new sequence whose statement 0 also fails
+// to deserialize must be attempted (and warned) once, not silently skipped because the
+// previous sequence failed at the same index.
+TEST_F(FpySequencerTester, tlmWriteDebugCacheClearedOnRuntimeReset) {
+    allocMem();
+    add_WAIT_REL();
+    seq.get_statements()[0].get_argBuf().serializeFrom(123);
+    writeAndRun();
+    // pause before statement 0 is dispatched
+    tester_get_m_breakpoint_ptr()->breakpointInUse = true;
+    tester_get_m_breakpoint_ptr()->breakpointIndex = 0;
+    dispatchUntilState(State::RUNNING_PAUSED);
+    // dispatchUntilState stops as soon as the state matches and can leave state machine
+    // messages queued; dispatch everything queued so each tick below is the only message
+    dispatchCurrentMessages(cmp);
+
+    invoke_to_tlmWrite(0, 0);
+    dispatchCurrentMessages(cmp);
+    invoke_to_tlmWrite(0, 0);
+    dispatchCurrentMessages(cmp);
+    ASSERT_EVENTS_DirectiveDeserializeError_SIZE(1);
+
+    // cancel and run a second sequence; RUNNING entry runs resetRuntime.
+    // IDLE entry clears the breakpoint, so re-arm it for the second run.
+    sendCmd_CANCEL(0, 0);
+    dispatchUntilState(State::IDLE);
+    dispatchCurrentMessages(cmp);
+    this->clearHistory();
+    writeAndRun();
+    tester_get_m_breakpoint_ptr()->breakpointInUse = true;
+    tester_get_m_breakpoint_ptr()->breakpointIndex = 0;
+    dispatchUntilState(State::RUNNING_PAUSED);
+    dispatchCurrentMessages(cmp);
+
+    // without invalidating cachedStmtIndex on reset, this tick short-circuits on the stale
+    // (index 0, failed) entry and emits nothing for the new sequence
+    invoke_to_tlmWrite(0, 0);
+    dispatchCurrentMessages(cmp);
+    ASSERT_EVENTS_DirectiveDeserializeError_SIZE(1);
+
+    removeFile("test.bin");
+}
+
 TEST_F(FpySequencerTester, seqRunIn) {
     allocMem();
     add_NO_OP();
