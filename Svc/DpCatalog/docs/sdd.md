@@ -145,6 +145,10 @@ When data products are downlinked, entries are retrieved in priority order by ca
 
 When a data product is downlinked, it is marked in the node as completed, but the state is also written to a file so that downlinked state is preserved across restarts of the software. When the catalog is built, the state file is first read into a data structure in memory.
 
+#### 3.6.6 FileDone Handling
+
+Every `sendFile` call returns a `SendFileResponse` whose `context` FileDownlink assigns to that send and echoes back in `fileDone`. `DpCatalog` keeps the context of the send in flight and applies a `fileDone` only while a send is in flight and the context matches. Anything else is a late callback from a send abandoned by `STOP_XMIT_CATALOG`, `BUILD_CATALOG` or `CLEAR_CATALOG`: it is reported with `StaleFileDone` (`WARNING_HI`, id 50) and the transmit in flight, if any, is left untouched. When `CLEAR_CATALOG` dropped the send in flight, the stale callback also closes the abandoned session so a waited `START_XMIT_CATALOG` is answered with `EXECUTION_ERROR` and a later `START_XMIT_CATALOG` is not refused as in progress. This replaces the `FW_ASSERT` that made a late `fileDone` FATAL (#5777).
+
 ## 4 Unit Testing
 
 Unit tests are located in `Svc/DpCatalog/test/ut`.
